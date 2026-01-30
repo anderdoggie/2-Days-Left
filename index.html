@@ -149,8 +149,12 @@
             { id: 'spark', name: '灵感', emoji: '⚡', type: 'fixed', value: 0.1 }
         ];
 
-        // 状态加载修正：严格检查 localStorage
+        // --- 核心持久化逻辑改进 ---
+        
+        // 1. 初始化状态
         const storedTime = localStorage.getItem('st_timeLeft');
+        const storedUpdateAt = localStorage.getItem('st_lastUpdateAt');
+        
         let state = {
             timeLeft: (storedTime !== null && !isNaN(parseFloat(storedTime))) ? parseFloat(storedTime) : 48 * 3600,
             history: JSON.parse(localStorage.getItem('st_history')) || [],
@@ -160,10 +164,21 @@
             lastTick: Date.now()
         };
 
-        // 强制离线保存
+        // 2. 离线时长补偿：计算自从上次关闭到现在的流逝时间
+        if (storedUpdateAt) {
+            const now = Date.now();
+            const elapsedSinceLastSave = (now - parseInt(storedUpdateAt)) / 1000;
+            if (elapsedSinceLastSave > 0) {
+                console.log(`离线补偿: 扣除 ${elapsedSinceLastSave.toFixed(1)}s`);
+                state.timeLeft = Math.max(0, state.timeLeft - elapsedSinceLastSave);
+            }
+        }
+
+        // 3. 增强版保存函数
         function save() {
             try {
                 localStorage.setItem('st_timeLeft', state.timeLeft.toString());
+                localStorage.setItem('st_lastUpdateAt', Date.now().toString());
                 localStorage.setItem('st_history', JSON.stringify(state.history.slice(0, 100)));
                 localStorage.setItem('st_pending', JSON.stringify(state.pending));
             } catch (e) {
@@ -171,20 +186,26 @@
             }
         }
 
-        // 监听 iOS 页面隐藏事件，确保在退出前保存
+        // 4. 针对 iOS 的多重监听
+        // visibilitychange 处理 App 切换，pagehide 处理浏览器关闭/划掉
+        window.addEventListener('pagehide', save);
+        window.addEventListener('beforeunload', save);
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') {
                 save();
             } else {
-                // 重新回到页面时，补回流逝的时间（可选，但目前我们的 tick 是在后台不运行的）
+                // 回到前台时再次校验同步（防止 tick 在后台停止）
                 const now = Date.now();
                 const gap = (now - state.lastTick) / 1000;
                 if (gap > 2) {
                     state.timeLeft = Math.max(0, state.timeLeft - gap);
                 }
                 state.lastTick = now;
+                render();
             }
         });
+
+        // --- UI & 交互逻辑 ---
 
         function initPicker() {
             const picker = document.getElementById('typePicker');
@@ -326,7 +347,7 @@
                 state.lastTick = Date.now();
                 render(); 
                 renderPending();
-                // 提高保存频率：每 5 秒自动保存一次，防止 iPhone 杀进程
+                // 关键保存：每 5 秒同步一次到磁盘
                 if (Math.floor(state.timeLeft) % 5 === 0) save();
             } else handleDeath();
         }
@@ -371,6 +392,7 @@
         function reborn() { 
             state.timeLeft = 48*3600; 
             state.pending = []; 
+            localStorage.clear();
             save(); 
             location.reload(); 
         }
@@ -384,11 +406,6 @@
         render(); 
         renderPending(true); 
         setInterval(tick, 1000);
-
-        // 额外保护：页面加载时检查是否真的读到了数据
-        window.onload = () => {
-             console.log("App loaded, remaining life:", state.timeLeft);
-        };
     </script>
 </body>
 </html>
