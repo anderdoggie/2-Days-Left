@@ -21,10 +21,32 @@
         .ring-outer { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 0.3s ease; transform: rotate(-90deg); transform-origin: center; }
         .ring-bg { fill: none; stroke: #1e293b; stroke-width: 10; opacity: 0.2; }
         body.light-mode .ring-bg { stroke: #cbd5e1; opacity: 0.5; }
-        .picker-container { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; padding: 0 calc(50% - 40px); mask-image: linear-gradient(to right, transparent, black 40%, black 60%, transparent); -webkit-overflow-scrolling: touch; }
+        
+        /* 循环滚动选择器样式 */
+        .picker-container { 
+            display: flex; 
+            overflow-x: auto; 
+            scroll-snap-type: x mandatory; 
+            scrollbar-width: none; 
+            padding: 0 calc(50% - 40px); 
+            mask-image: linear-gradient(to right, transparent, black 40%, black 60%, transparent); 
+            -webkit-overflow-scrolling: touch; 
+            position: relative;
+        }
         .picker-container::-webkit-scrollbar { display: none; }
-        .picker-item { flex: 0 0 80px; scroll-snap-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: all 0.3s; opacity: 0.2; transform: scale(0.8); }
+        .picker-item { 
+            flex: 0 0 80px; 
+            scroll-snap-align: center; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            transition: all 0.3s; 
+            opacity: 0.2; 
+            transform: scale(0.8); 
+        }
         .picker-item.active { opacity: 1; transform: scale(1.1); }
+        
         #pendingContainer { flex: 1; overflow-y: auto; padding: 1rem; }
         .tap-scale:active { transform: scale(0.96); }
         .glass { background: rgba(255, 255, 255, 0.03); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.05); }
@@ -63,16 +85,19 @@
     </main>
 
     <div class="px-6 py-4 flex flex-col gap-4 shrink-0">
-        <input id="actionNote" type="text" placeholder="What are you doing?" class="w-full glass rounded-2xl px-5 py-3 text-sm text-center outline-none focus:ring-2 focus:ring-blue-500/50 transition-all">
+        <!-- 1. 修改 Placeholder -->
+        <input id="actionNote" type="text" placeholder="What's the plan?" class="w-full glass rounded-2xl px-5 py-3 text-sm text-center outline-none focus:ring-2 focus:ring-blue-500/50 transition-all">
+        
         <div id="typePicker" class="picker-container h-16"></div>
+        
         <div class="flex gap-3">
-            <button onclick="submitAction('inbox')" class="flex-1 py-4 btn-gradient-blue text-white font-bold rounded-2xl tap-scale">
+            <button onclick="submitAction('inbox')" class="flex-1 py-3 btn-gradient-blue text-white font-bold rounded-2xl tap-scale">
                 <span class="text-[10px] tracking-widest">INBOX</span>
             </button>
-            <button onclick="submitAction('start_now')" class="flex-1 py-4 btn-gradient-amber text-white font-bold rounded-2xl tap-scale">
+            <button onclick="submitAction('start_now')" class="flex-1 py-3 btn-gradient-amber text-white font-bold rounded-2xl tap-scale">
                 <span class="text-[10px] tracking-widest">START</span>
             </button>
-            <button onclick="submitAction('finish_direct')" class="flex-[1.2] py-4 btn-gradient-emerald text-white font-bold rounded-2xl tap-scale relative">
+            <button onclick="submitAction('finish_direct')" class="flex-[1.2] py-3 btn-gradient-emerald text-white font-bold rounded-2xl tap-scale relative">
                 <span class="text-[10px] tracking-widest">DONE</span>
                 <div id="injectValue" class="absolute right-2 top-2 text-[8px] bg-white/20 px-1.5 py-0.5 rounded-full">+0.5h</div>
             </button>
@@ -107,14 +132,13 @@
             { id: 'spark', name: 'SPARK', emoji: '⚡', type: 'fixed', value: 0.1 }
         ];
 
-        // --- 修复后台暂停的关键逻辑 ---
-        // 我们记录 targetEndTime (目标结束时间的时间戳)
         let state = {
             targetEndTime: parseInt(localStorage.getItem('st_targetEndTime')) || (Date.now() + 48 * 3600 * 1000),
             history: JSON.parse(localStorage.getItem('st_history')) || [],
             pending: JSON.parse(localStorage.getItem('st_pending')) || [],
-            isDark: true,
-            selectedIndex: 0
+            isDark: localStorage.getItem('st_isDark') !== 'false',
+            selectedIndex: 0,
+            trueLength: CONFIG.length
         };
 
         function getSecondsLeft() {
@@ -130,6 +154,7 @@
             localStorage.setItem('st_targetEndTime', state.targetEndTime.toString());
             localStorage.setItem('st_history', JSON.stringify(state.history.slice(0, 50)));
             localStorage.setItem('st_pending', JSON.stringify(state.pending));
+            localStorage.setItem('st_isDark', state.isDark.toString());
         }
 
         function tick() {
@@ -250,10 +275,11 @@
             save(); tick();
         }
 
-        function toggleTheme() {
-            state.isDark = !state.isDark;
+        function toggleTheme(init = false) {
+            if (!init) state.isDark = !state.isDark;
             document.body.classList.toggle('light-mode', !state.isDark);
             document.getElementById('themeIcon').innerText = state.isDark ? '🌙' : '☀️';
+            save();
         }
 
         function toggleHistory(show) {
@@ -281,38 +307,85 @@
         function reborn() { localStorage.clear(); location.reload(); }
         function handleDeath() { document.getElementById('deathOverlay').classList.remove('hidden'); }
 
-        // --- 初始化选择器 ---
+        // --- 循环滚动选择器逻辑 ---
         const picker = document.getElementById('typePicker');
-        picker.innerHTML = CONFIG.map((item, index) => `
-            <div class="picker-item ${index === 0 ? 'active' : ''}" onclick="scrollToItem(${index})">
-                <span class="text-3xl mb-1">${item.emoji}</span>
-                <span class="text-[8px] font-bold opacity-60">${item.name}</span>
-            </div>
-        `).join('');
-        picker.onscroll = () => {
-            const center = picker.scrollLeft + picker.offsetWidth / 2;
-            let activeIdx = 0; let minDiff = Infinity;
-            [...picker.children].forEach((item, idx) => {
-                const diff = Math.abs(center - (item.offsetLeft + item.offsetWidth / 2));
-                if (diff < minDiff) { minDiff = diff; activeIdx = idx; }
-            });
-            if (state.selectedIndex !== activeIdx) {
-                state.selectedIndex = activeIdx;
-                [...document.querySelectorAll('.picker-item')].forEach((it, i) => it.classList.toggle('active', i === activeIdx));
-                const c = CONFIG[activeIdx];
-                document.getElementById('injectValue').innerText = c.type === 'multiplier' ? `${c.factor}x` : `+${c.value}h`;
-            }
-        };
-        function scrollToItem(idx) {
-            const it = picker.children[idx];
-            picker.scrollTo({ left: it.offsetLeft - (picker.offsetWidth / 2) + (it.offsetWidth / 2), behavior: 'smooth' });
+        const ITEM_WIDTH = 80;
+        
+        function initPicker() {
+            // 创建三份数据 [A B C] -> [A B C] [A B C] [A B C]
+            const extendedConfigs = [...CONFIG, ...CONFIG, ...CONFIG];
+            picker.innerHTML = extendedConfigs.map((item, index) => {
+                const isReal = index >= state.trueLength && index < state.trueLength * 2;
+                return `
+                    <div class="picker-item" data-index="${index % state.trueLength}">
+                        <span class="text-3xl mb-1">${item.emoji}</span>
+                        <span class="text-[8px] font-bold opacity-60">${item.name}</span>
+                    </div>
+                `;
+            }).join('');
+
+            // 初始化位置到中间那组的第一项
+            setTimeout(() => {
+                picker.scrollLeft = state.trueLength * ITEM_WIDTH;
+                updatePickerActive();
+            }, 10);
         }
 
-        // 启动
+        function updatePickerActive() {
+            const center = picker.scrollLeft + picker.offsetWidth / 2;
+            let activeItem = null;
+            let minDiff = Infinity;
+            let activeIdxInDom = 0;
+
+            [...picker.children].forEach((item, idx) => {
+                const diff = Math.abs(center - (item.offsetLeft + item.offsetWidth / 2));
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    activeItem = item;
+                    activeIdxInDom = idx;
+                }
+            });
+
+            if (activeItem) {
+                const realIndex = parseInt(activeItem.getAttribute('data-index'));
+                if (state.selectedIndex !== realIndex) {
+                    state.selectedIndex = realIndex;
+                    [...picker.children].forEach(it => it.classList.remove('active'));
+                    activeItem.classList.add('active');
+                    
+                    const c = CONFIG[realIndex];
+                    document.getElementById('injectValue').innerText = c.type === 'multiplier' ? `${c.factor}x` : `+${c.value}h`;
+                }
+            }
+        }
+
+        picker.addEventListener('scroll', () => {
+            const currentScroll = picker.scrollLeft;
+            const maxScroll = (state.trueLength * 2) * ITEM_WIDTH;
+            const minScroll = state.trueLength * ITEM_WIDTH;
+
+            // 无缝循环跳跃逻辑
+            if (currentScroll >= maxScroll) {
+                picker.scrollLeft = currentScroll - state.trueLength * ITEM_WIDTH;
+            } else if (currentScroll <= (state.trueLength - 1) * ITEM_WIDTH) {
+                picker.scrollLeft = currentScroll + state.trueLength * ITEM_WIDTH;
+            }
+            
+            updatePickerActive();
+        });
+
+        function scrollToItem(idx) {
+            // 点击跳转到中间那组对应的位置
+            const targetPos = (state.trueLength + idx) * ITEM_WIDTH;
+            picker.scrollTo({ left: targetPos, behavior: 'smooth' });
+        }
+
+        // 初始化
+        initPicker();
+        toggleTheme(true);
         setInterval(tick, 1000);
         renderPending(getSecondsLeft(), true);
 
-        // 核心修复：当前台可见性改变时立即刷新
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) tick();
         });
